@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # The photo endpoint's success response is a 302 redirect, not a 2XX.
+  operation-2xx-response: off
+  # The API service has no open-source license; only examples/ is MIT (see LICENSE).
+  info-license: off

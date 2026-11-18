@@ -1,0 +1,514 @@
+openapi: 3.1.0
+info:
+  title: Reliqra API
+  version: "1.0"
+  summary: Read and update your Reliqra inventory, record sales and read shipments.
+  description: |
+    The Reliqra API gives Reliqra Pro workspaces programmatic access to the same
+    inventory, sales and shipment records used by the Reliqra apps, browser
+    extension and Cloud.
+
+    Authenticate every request with the `X-Reliqra-Api-Key` header. A key is
+    scoped to one workspace and carries only the scopes you grant it.
+  contact:
+    name: Contact Us
+    url: https://reliqra.com/book.html
+servers:
+  - url: https://api.reliqra.com/v1
+    description: Production
+security:
+  - ApiKey: []
+tags:
+  - name: Inventory
+    description: Items in your workspace, across every item type.
+  - name: Sales
+    description: Sales recorded against inventory items.
+  - name: Shipments
+    description: Shipment records, with the items they contain.
+  - name: Events
+    description: A pull-based change feed for sync.
+paths:
+  /inventory:
+    get:
+      tags: [Inventory]
+      operationId: listInventory
+      summary: List Inventory
+      description: Returns your inventory, most recently modified first. Requires `inventory:read`.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          description: Only return items with this status.
+          schema:
+            $ref: "#/components/schemas/SettableStatus"
+        - name: updated_after
+          in: query
+          description: Only return items modified after this ISO-8601 timestamp.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A page of inventory items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+  /inventory/{reliqra_id}:
+    parameters:
+      - $ref: "#/components/parameters/ReliqraId"
+    get:
+      tags: [Inventory]
+      operationId: getInventoryItem
+      summary: Get an Inventory Item
+      description: Requires `inventory:read`.
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [Inventory]
+      operationId: updateInventoryItem
+      summary: Update an Inventory Item
+      description: |
+        Updates a subset of fields. Send only the fields you want to change.
+        An absent key leaves the field untouched. For `sold_price`, `cost` and
+        `value`, an explicit JSON `null` clears the field to "not known".
+        Requires `inventory:write`. Honors `Idempotency-Key`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryPatch"
+      responses:
+        "200":
+          description: The updated item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+  /items/{reliqra_id}/image/{side}:
+    get:
+      tags: [Inventory]
+      operationId: getItemImage
+      summary: Get an Item Photo
+      description: |
+        Redirects (302) to a short-lived signed image URL. The `front_photo_url`
+        and `back_photo_url` fields on an inventory item point here. Follow the
+        redirect to download the photo, and do not store the redirect target.
+        Requires `inventory:read`.
+      parameters:
+        - $ref: "#/components/parameters/ReliqraId"
+        - name: side
+          in: path
+          required: true
+          schema: { type: string, enum: [front, back] }
+      responses:
+        "302":
+          description: Redirect to the photo.
+          headers:
+            Location:
+              description: Signed, short-lived image URL.
+              schema: { type: string, format: uri }
+            Cache-Control:
+              schema: { type: string, example: "private, no-store" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+  /sales:
+    get:
+      tags: [Sales]
+      operationId: listSales
+      summary: List Sales
+      description: Most recent sales first. Requires `sales:read`.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: since
+          in: query
+          description: Only return sales at or after this ISO-8601 timestamp.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: A page of sales.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalePage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [Sales]
+      operationId: createSale
+      summary: Record a Sale
+      description: |
+        Records a sale against an inventory item. When `marketplace_external_id`
+        is supplied, the call is idempotent on the marketplace plus that id:
+        repeating it updates the same sale instead of creating a duplicate.
+        Requires `sales:write`. Honors `Idempotency-Key`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleCreate"
+      responses:
+        "201":
+          description: The recorded sale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+  /shipments:
+    get:
+      tags: [Shipments]
+      operationId: listShipments
+      summary: List Shipments
+      description: Most recently modified first, with nested shipment items. Requires `shipments:read`.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of shipments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+  /events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: Poll the Event Feed
+      description: |
+        A pull-based change feed, oldest first. Store the last event `id` you
+        processed and pass it as `after` on the next poll. When `next_cursor`
+        is `null` you are caught up; keep your own last `id` and poll again
+        later. Events are retained for a limited window. A cursor older than
+        that window returns `410 cursor_expired`: re-read the resource and
+        resume from the newest event id. Requires `events:read`.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - name: after
+          in: query
+          description: Return events with an id greater than this value.
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "410":
+          description: The cursor is older than the retention window.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/ServerError" }
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-Reliqra-Api-Key
+      description: "A key from your workspace, starting with `rqk_`, an environment tag and 40 hex characters."
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Page size. Defaults to 100. Values above 500 are clamped to 500.
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous response's `next_cursor`.
+      schema: { type: string }
+    ReliqraId:
+      name: reliqra_id
+      in: path
+      required: true
+      description: The item's public identifier.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        A UUID. Replaying the same key with the same request returns the
+        original result. The same key with a different payload returns 409.
+      schema: { type: string, format: uuid }
+  responses:
+    Unauthorized:
+      description: Missing, malformed, unknown or revoked key (`invalid_key`, `revoked_key`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: invalid_key, message: Missing or malformed X-Reliqra-Api-Key header }
+    Forbidden:
+      description: The key lacks the required scope (`missing_scope`) or the workspace is not on Reliqra Pro (`plan_required`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such route, or no such item in your workspace (`not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    IdempotencyConflict:
+      description: The Idempotency-Key was already used with a different payload (`idempotency_conflict`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: A parameter or body field failed validation (`validation_error`). `detail` maps field names to reasons.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: validation_error
+              message: Request body failed validation
+              detail: { quantity: must be an integer >= 1 }
+    RateLimited:
+      description: Rate limit exceeded (`rate_limited`). Wait `Retry-After` seconds.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ServerError:
+      description: |
+        Retryable server-side failure: `internal_error` (500), `upstream_error`
+        (502), `auth_unavailable` or `service_unavailable` (503). Back off and retry.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: Stable snake_case error code., examples: [invalid_key] }
+            message: { type: string, description: Human-readable explanation. }
+            detail: { description: "Optional structured detail, such as per-field reasons." }
+    SettableStatus:
+      type: string
+      description: The statuses you may filter by or set through the API.
+      enum: [Active, Sold, Traded, Private]
+    InventoryItem:
+      type: object
+      description: |
+        An inventory record. The fields below are common to every item type.
+        Records also carry type-specific fields for coins, currency, cards,
+        comics, bullion and gems (for example `denomination`, `year`,
+        `mintmark`, `grade`, `grader`, `set_name`, `carat`), a
+        `record_extras` object for additional per-type data, and may carry a
+        `measurement_evidence` array. Treat unknown fields as additive and
+        ignore ones you do not use.
+      required: [reliqra_id]
+      additionalProperties: true
+      properties:
+        reliqra_id: { type: string, description: Public identifier for the item. }
+        product_id: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        status:
+          type: string
+          description: Current status. You can set Active, Sold, Traded or Private; other values are managed by Reliqra.
+        product_type: { type: [string, "null"] }
+        quantity: { type: [integer, "null"], description: Lot size. }
+        quantity_available: { type: [number, "null"], description: Quantity not yet sold. Read-only. }
+        value: { type: [number, "null"], description: "Your recorded value, in USD." }
+        cost: { type: [number, "null"], description: "What you paid, in USD." }
+        sold_price: { type: [number, "null"] }
+        sold_at: { type: [string, "null"], format: date-time }
+        front_photo_url:
+          type: [string, "null"]
+          format: uri
+          description: Stable endpoint for the front photo (see getItemImage), or null.
+        back_photo_url:
+          type: [string, "null"]
+          format: uri
+          description: Stable endpoint for the back photo, or null.
+        description_text: { type: [string, "null"] }
+        record_extras: { type: [object, "null"], additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        last_modified_at: { type: string, format: date-time }
+    InventoryPatch:
+      type: object
+      description: A non-empty subset of these fields. Unknown fields are rejected.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        status: { $ref: "#/components/schemas/SettableStatus" }
+        sold_price: { type: [number, "null"], minimum: 0 }
+        cost: { type: [number, "null"], minimum: 0 }
+        value: { type: [number, "null"], minimum: 0 }
+        quantity: { type: integer, minimum: 1 }
+    InventoryPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/InventoryItem" }
+        next_cursor: { type: [string, "null"], description: Pass as `cursor` for the next page. Null on the last page. }
+    Fee:
+      type: object
+      required: [kind, amount]
+      properties:
+        kind:
+          type: string
+          description: |
+            Fee type, such as final_value, insertion, promoted_listing,
+            commission, processor, shipping_label, shipping_insurance,
+            listing_upgrade, returns_processing. Other values are stored as `other`.
+        amount: { type: number, minimum: 0 }
+    SaleCreate:
+      type: object
+      required: [item_reliqra_id, sold_at, sold_price, marketplace]
+      properties:
+        item_reliqra_id: { type: string }
+        sold_at: { type: string, format: date-time }
+        sold_price: { type: number, minimum: 0 }
+        marketplace: { type: string, description: "Where the sale happened, as a free-form name." }
+        marketplace_external_id: { type: string, description: The marketplace's own order or sale id. Enables idempotent upserts. }
+        quantity_sold: { type: number, exclusiveMinimum: 0, default: 1 }
+        fees:
+          type: array
+          items: { $ref: "#/components/schemas/Fee" }
+    Sale:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        item_reliqra_id: { type: [string, "null"] }
+        sold_at: { type: string, format: date-time }
+        quantity_sold: { type: number }
+        sold_price: { type: number }
+        tax_collected: { type: [number, "null"] }
+        shipping_collected: { type: [number, "null"] }
+        marketplace: { type: string }
+        marketplace_external_id: { type: [string, "null"] }
+        sales_order: { type: [string, "null"] }
+        buyer_ref: { type: [string, "null"] }
+        disposition_kind: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        last_modified_at: { type: string, format: date-time }
+    SalePage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Sale" }
+        next_cursor: { type: [string, "null"] }
+    ShipmentItem:
+      type: object
+      properties:
+        id: { type: string }
+        sale_id: { type: [string, "null"] }
+        item_id: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    Shipment:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        marketplace: { type: [string, "null"] }
+        shipment_external_id: { type: [string, "null"] }
+        tracking_number: { type: [string, "null"] }
+        carrier: { type: [string, "null"] }
+        status: { type: [string, "null"] }
+        shipped_at: { type: [string, "null"], format: date-time }
+        ship_to_name: { type: [string, "null"] }
+        ship_to_address: { description: Destination address as recorded. }
+        label_url: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        last_modified_at: { type: string, format: date-time }
+        shipment_items:
+          type: array
+          items: { $ref: "#/components/schemas/ShipmentItem" }
+    ShipmentPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Shipment" }
+        next_cursor: { type: [string, "null"] }
+    Event:
+      type: object
+      required: [id, type, occurred_at]
+      properties:
+        id: { type: integer, description: Increasing event id. Use as the `after` cursor. }
+        type:
+          type: string
+          description: |
+            For example inventory.updated, inventory.deleted, sale.created,
+            sale.updated, shipment.created, shipment.updated.
+        occurred_at: { type: string, format: date-time }
+        payload: { type: object, additionalProperties: true, description: "The changed record, limited to a documented set of fields." }
+    EventPage:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Event" }
+        next_cursor:
+          type: [string, "null"]
+          description: The last event id on a full page, as a string. Null when you are caught up.
