@@ -125,6 +125,8 @@ Each key is limited to 120 requests per minute by default. When you exceed the l
 
 The API as a whole is also capped at 50 requests per second, with bursts up to 100. Above that cap a request returns `429` with the body `{"message":"Too Many Requests"}` and no `Retry-After` header. Treat it like `rate_limited`: wait a second or two and retry with backoff.
 
+Each client address is also limited to 300 requests per minute at the edge, ahead of every other limit. Above it, requests from that address return `429` with the body `{"message":"Too Many Requests"}` and `Retry-After: 60` for about a minute. A single key at its 120-per-minute limit never reaches this one; it matters only when many keys, or unauthenticated traffic, share one address.
+
 ## Errors
 
 Errors use one envelope:
