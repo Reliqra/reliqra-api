@@ -14,6 +14,7 @@ Read and update your Reliqra inventory, record sales and read shipments from you
 - **Plan:** Reliqra Pro
 - **Machine-readable spec:** [`openapi.yaml`](./openapi.yaml) (OpenAPI 3.1)
 - **Examples:** [`examples/`](./examples) in curl, Node.js, Python and Swift
+- **SDKs:** [TypeScript](./sdk/typescript) and [Python](./sdk/python), plus runnable [`samples/`](./samples)
 
 ## Getting a Key
 
@@ -181,13 +182,83 @@ Then pass the returned `next_cursor` as `?cursor=` until it is `null`. Full, run
 | [`python.py`](./examples/python.py) | Python 3, standard library only |
 | [`swift.swift`](./examples/swift.swift) | Swift with URLSession |
 
+## SDKs and Samples
+
+Small, dependency-free clients that wrap every endpoint in [`openapi.yaml`](./openapi.yaml). Both read the key from the `RELIQRA_API_KEY` environment variable (or take it as an option), follow pagination for you, raise a typed error carrying the API's error `code` (for example `plan_required` or `missing_scope`), and retry `429` responses with backoff, honouring `Retry-After`. Writes get an `Idempotency-Key` automatically so a retry cannot duplicate a change.
+
+| SDK | Runtime | Status |
+|---|---|---|
+| [`sdk/typescript`](./sdk/typescript) | Node.js 18 or newer (global `fetch`), no runtime dependencies | Available from this repository |
+| [`sdk/python`](./sdk/python) | Python 3.9 or newer, standard library only | Available from this repository |
+| Swift | URLSession | Planned. See [`examples/swift.swift`](./examples/swift.swift) for now. |
+
+The SDKs are not published to npm or PyPI yet. Install them from a clone of this repository.
+
+### TypeScript
+
+```bash
+git clone https://github.com/Reliqra/reliqra-api.git
+cd reliqra-api/sdk/typescript
+npm install && npm run build      # compiles to dist/
+# then, in your own project:
+npm install /path/to/reliqra-api/sdk/typescript
+```
+
+```ts
+import { ReliqraClient, ReliqraError } from "@reliqra/api";
+
+const client = new ReliqraClient(); // reads RELIQRA_API_KEY
+try {
+  for await (const item of client.iterateInventory({ status: "Active" })) {
+    console.log(item.reliqra_id, item.title);
+  }
+} catch (e) {
+  if (e instanceof ReliqraError && e.code === "plan_required") console.error("Reliqra Pro is required");
+  else throw e;
+}
+```
+
+### Python
+
+```bash
+git clone https://github.com/Reliqra/reliqra-api.git
+pip install ./reliqra-api/sdk/python
+```
+
+```python
+from reliqra_api import ReliqraClient, ReliqraError
+
+client = ReliqraClient()  # reads RELIQRA_API_KEY
+try:
+    for item in client.iterate_inventory(status="Active"):
+        print(item["reliqra_id"], item.get("title"))
+except ReliqraError as e:
+    print(e.code, e.message)
+```
+
+### Samples
+
+Each sample exists in TypeScript ([`samples/typescript`](./samples/typescript), build the TypeScript SDK first) and Python ([`samples/python`](./samples/python)). They read `RELIQRA_API_KEY` from the environment, and each header comment lists the scopes it needs.
+
+| Task | Scopes | Notes |
+|---|---|---|
+| Export the whole inventory to CSV | `inventory:read` | `export-inventory-csv` |
+| Mark an item sold and record the sale | `sales:write`, `inventory:write` | `mark-sold`. Supports `--dry-run`, which makes no writes. |
+| "What changed since yesterday" report | `inventory:read`, `sales:read` | `what-changed`. Read-only. |
+
+```bash
+export RELIQRA_API_KEY="rqk_test_0000000000000000000000000000000000000000"   # use your own key
+python3 samples/python/mark_sold.py <reliqra_id> --price 42.50 --dry-run
+node samples/typescript/mark-sold.ts <reliqra_id> --price 42.50 --dry-run   # Node 22.18+, or: npx tsx
+```
+
 ## Support
 
 [Contact Us](https://reliqra.com/book.html). The product overview is at [reliqra.com/developer-api.html](https://reliqra.com/developer-api.html).
 
 ## License
 
-The example code in [`examples/`](./examples) is released under the [MIT License](./LICENSE). The Reliqra API itself, the Reliqra name and the Reliqra marks are not covered by that license.
+The example code in [`examples/`](./examples), the SDKs in [`sdk/`](./sdk) and the samples in [`samples/`](./samples) are released under the [MIT License](./LICENSE). The Reliqra API itself, the Reliqra name and the Reliqra marks are not covered by that license.
 
 ---
 
